@@ -1,0 +1,71 @@
+name: Release
+
+# Neues Release: Tag pushen, z. B.  git tag v0.2.0 && git push origin v0.2.0
+# Testbuild:                        git tag v0.2.0-test.1 && git push origin v0.2.0-test.1
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tests
+        run: node tests/run.mjs
+
+      - name: Version aus dem Tag setzen
+        id: ver
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          NAME="${TAG#v}"
+          BASE="$(echo "$NAME" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')"
+          TESTNR="$(echo "$NAME" | grep -oiE 'test[.-]?[0-9]+' | grep -oE '[0-9]+$' || true)"
+          if [ -n "$TESTNR" ]; then
+            NUM="$BASE.$TESTNR"; PRE=true; TITLE="LakuenWatcher v$BASE test $TESTNR (Testbuild)"
+          else
+            NUM="$BASE"; PRE=false; TITLE="LakuenWatcher v$BASE"
+          fi
+          python3 - "$NUM" "$NAME" <<'PY'
+          import json, sys
+          p = "extension/manifest.json"
+          m = json.load(open(p, encoding="utf-8"))
+          m["version"], m["version_name"] = sys.argv[1], sys.argv[2]
+          json.dump(m, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          PY
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "pre=$PRE" >> "$GITHUB_OUTPUT"
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+
+      - name: Paket bauen
+        run: |
+          mkdir -p dist
+          ZIP="LakuenWatcher-${{ steps.ver.outputs.tag }}.zip"
+          (cd extension && zip -qr "../dist/$ZIP" . -x "updater.json")
+          (cd dist && sha256sum "$ZIP" > "$ZIP.sha256")
+          cp scripts/install.sh scripts/update.sh dist/
+          ls -la dist
+
+      # Testbuilds werden absichtlich NICHT als "Pre-release" markiert, damit der
+      # Updater in der Erweiterung sie über releases/latest findet.
+      - name: Release veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES_FILE=RELEASE_NOTES.md
+          if [ "${{ steps.ver.outputs.pre }}" = "true" ]; then
+            { echo "**Testbuild** – wird durch das nächste Release ersetzt."; echo; cat "$NOTES_FILE" 2>/dev/null || true; } > notes.md
+          else
+            cp "$NOTES_FILE" notes.md 2>/dev/null || echo "Neue Version." > notes.md
+          fi
+          gh release create "${{ steps.ver.outputs.tag }}" dist/* \
+            --title "${{ steps.ver.outputs.title }}" \
+            --notes-file notes.md

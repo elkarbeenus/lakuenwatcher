@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="../icons/icon48.png" alt="" width="28" height="28">
+    <div>
+      <div class="title">LakuenWatcher</div>
+      <div class="version" id="version">…</div>
+    </div>
+  </header>
+
+  <div class="banner" id="update" hidden>
+    <div>
+      <div class="b-title">Update <span id="update-version"></span> verfügbar</div>
+      <div class="b-text" id="update-text">Lädt die neue Version und startet die Erweiterung neu. Einstellungen bleiben.</div>
+    </div>
+    <button id="update-btn" class="primary">Update</button>
+  </div>
+
+  <label class="row switch">
+    <span>Automatisch nächste Folge</span>
+    <input type="checkbox" id="enabled">
+  </label>
+
+  <div class="status">
+    <span id="status">Folgen in diesem Tab: 0</span>
+    <button id="reset" class="link">zurücksetzen</button>
+  </div>
+
+  <button id="next" class="primary wide">Nächste Folge jetzt ▶</button>
+
+  <details open>
+    <summary>Einstellungen</summary>
+    <label class="row"><span>Stopp nach Folgen <small>(0 = nie)</small></span><input type="number" id="stopAfter" min="0" max="99"></label>
+    <label class="row"><span>Countdown vor Wechsel <small>(s)</small></span><input type="number" id="countdown" min="0" max="60"></label>
+    <label class="row"><span>Abspann überspringen <small>(s vor Ende)</small></span><input type="number" id="outroSkip" min="0" max="600"></label>
+    <label class="row"><span>Intro überspringen <small>(s)</small></span><input type="number" id="introSkip" min="0" max="600"></label>
+    <label class="row switch"><span>Neue Folge automatisch starten</span><input type="checkbox" id="autoplay"></label>
+    <label class="row switch"><span>Nach Updates schauen</span><input type="checkbox" id="updateCheck"></label>
+  </details>
+
+  <footer>
+    <button id="check" class="link">Nach Update suchen</button>
+    <a href="https://github.com/elkarbeenus/lakuenwatcher" target="_blank">GitHub</a>
+  </footer>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
