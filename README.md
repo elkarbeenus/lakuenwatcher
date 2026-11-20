@@ -76,12 +76,10 @@ scripts/update.sh      Updater
 tests/run.mjs          node tests/run.mjs
 ```
 
-**Release:** Tag pushen, den Rest macht GitHub Actions.
+**Release:** In `extension/manifest.json` den Wert `version_name` erhöhen und auf `main` pushen. Den Rest (Tests, ZIP, SHA-256, Tag, Release) macht GitHub Actions.
 
-```bash
-git tag v0.2.0 && git push origin v0.2.0          # Release
-git tag v0.2.0-test.1 && git push origin v0.2.0-test.1   # Testbuild
-```
+- `"0.2.0"` ergibt das Release v0.2.0
+- `"0.2.0-test.1"` ergibt den Testbuild v0.2.0-test.1. Der ist im Titel markiert und für den Updater sichtbar.
 
 ## Hinweis
 
