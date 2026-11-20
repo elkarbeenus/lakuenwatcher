@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "LakuenWatcher",
   "short_name": "LakuenWatcher",
-  "version": "0.3.0",
-  "version_name": "0.3.0",
+  "version": "0.4.0",
+  "version_name": "0.4.0",
   "description": "Spielt automatisch die nächste Folge ab, wenn eine Folge zu Ende ist.",
   "icons": {
     "16": "icons/icon16.png",
@@ -52,10 +52,25 @@
       ],
       "js": [
         "content/profiles.js",
+        "content/hosters.js",
         "content/page.js"
       ],
       "all_frames": false,
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "commands": {
+    "next-episode": {
+      "suggested_key": {
+        "default": "Alt+Shift+N"
+      },
+      "description": "Nächste Folge"
+    },
+    "skip-intro": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "Intro überspringen"
+    }
+  }
 }

@@ -9,6 +9,11 @@ export const DEFAULTS = {
   introSkip: 0,       // Beim Start einer Folge so viele Sekunden überspringen
   autoplay: true,     // Neue Folge automatisch starten
   updateCheck: true,  // Beim Start nach neuer Version auf GitHub schauen
+  resume: true,       // An der letzten Stelle weiterschauen
+  autoHoster: true,   // Lieblings-Hoster und Sprache automatisch wählen
+  language: "de",     // de | en-sub | en | any
+  hosterOrder: "VOE, Doodstream, Vidoza, Filemoon, Streamtape, Vidmoly",
+  keys: true,         // Tasten N (nächste Folge) und S (Intro überspringen) im Player
 };
 
 export const REPO = "elkarbeenus/lakuenwatcher";

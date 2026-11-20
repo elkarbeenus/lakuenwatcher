@@ -10,6 +10,7 @@
 //     von selbst startet.
 
 import { getSettings, REPO } from "./lib/settings.js";
+import { seriesInfo } from "./lib/series.js";
 import { isNewer, displayVersion } from "./lib/version.js";
 
 const AUTOPLAY_WINDOW_MS = 90_000;   // So lange nach einem Wechsel wird Autoplay versucht
@@ -40,6 +41,7 @@ async function updateBadge(tabId, state) {
   let text = "";
   let color = "#7c5cff";
   if (state.status === "stopped") { text = "STOP"; color = "#e5484d"; }
+  else if (state.status === "sleep") { text = "ZZZ"; color = "#e5484d"; }
   else if (state.status === "end") { text = "ENDE"; color = "#e5484d"; }
   else if (state.casting) { text = "TV"; color = "#30a46c"; }
   else if (state.count > 0) { text = String(state.count); }
@@ -59,6 +61,12 @@ async function goNext(tabId, { manual = false, fromCast = false } = {}) {
   if (!manual) {
     if (!settings.enabled) return { ok: false, reason: "disabled" };
     if (Date.now() - state.lastEnded < ENDED_DEBOUNCE_MS) return { ok: false, reason: "debounce" };
+    const { sleepUntil } = await chrome.storage.local.get("sleepUntil");
+    if (sleepUntil && Date.now() >= sleepUntil) {
+      await chrome.storage.local.remove("sleepUntil");
+      await setTabState(tabId, { status: "sleep", lastEnded: Date.now(), pendingAutoplay: 0, pendingCast: 0 });
+      return { ok: false, reason: "sleep" };
+    }
     if (settings.stopAfter > 0 && state.count >= settings.stopAfter) {
       await setTabState(tabId, { status: "stopped", lastEnded: Date.now(), pendingAutoplay: 0 });
       return { ok: false, reason: "stopAfter" };
@@ -89,6 +97,65 @@ async function goNext(tabId, { manual = false, fromCast = false } = {}) {
   }
   return reply || { ok: false, reason: "unknown" };
 }
+
+// ---------- Pro Serie, Weiterschauen, Intro überspringen ----------
+
+async function effective(tabUrl) {
+  const settings = await getSettings();
+  const info = seriesInfo(tabUrl || "");
+  const { series = {} } = await chrome.storage.local.get("series");
+  const own = info ? series[info.key] || {} : {};
+  return {
+    introSkip: own.introSkip ?? settings.introSkip,
+    outroSkip: own.outroSkip ?? settings.outroSkip,
+    keys: settings.keys,
+  };
+}
+
+async function getHistory() {
+  const { history = {} } = await chrome.storage.local.get("history");
+  return Object.values(history).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+async function saveProgress(tab, time, duration) {
+  if (!tab || !Number.isFinite(time) || !Number.isFinite(duration) || duration < 180) return;
+  const info = seriesInfo(tab.url);
+  if (!info) return;
+  const { history = {} } = await chrome.storage.local.get("history");
+  history[info.key] = {
+    key: info.key, name: info.name, url: tab.url, season: info.season, episode: info.episode,
+    time: Math.floor(time), duration: Math.floor(duration), updatedAt: Date.now(),
+  };
+  // Nur die letzten 30 Serien behalten
+  const keys = Object.values(history).sort((a, b) => b.updatedAt - a.updatedAt).slice(30).map((h) => h.key);
+  keys.forEach((k) => delete history[k]);
+  await chrome.storage.local.set({ history });
+}
+
+async function resumePoint(tabUrl) {
+  const settings = await getSettings();
+  if (!settings.resume || !tabUrl) return 0;
+  const info = seriesInfo(tabUrl);
+  if (!info) return 0;
+  const { history = {} } = await chrome.storage.local.get("history");
+  const h = history[info.key];
+  if (!h || h.url !== tabUrl) return 0;
+  // Nur wenn mittendrin: nicht ganz am Anfang und nicht im Abspann
+  return h.time > 30 && h.time < h.duration - 90 ? h.time : 0;
+}
+
+async function skipIntro(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const eff = await effective(tab ? tab.url : "");
+  try { await chrome.tabs.sendMessage(tabId, { type: "skipIntro", introSkip: eff.introSkip }); } catch (_) {}
+}
+
+chrome.commands.onCommand.addListener(async (command) => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) return;
+  if (command === "next-episode") goNext(tab.id, { manual: true });
+  if (command === "skip-intro") skipIntro(tab.id);
+});
 
 // ---------- Nachrichten ----------
 
@@ -123,10 +190,65 @@ async function handleMessage(msg, sender) {
       return { ok: true };
 
     case "hello": {
-      // Ein Frame fragt beim Laden: soll ich automatisch starten?
+      // Ein Frame fragt beim Laden: soll ich automatisch starten? Wo weiterschauen?
       const state = await getTabState(tabId);
       const autoplay = state.pendingAutoplay > 0 && Date.now() - state.pendingAutoplay < AUTOPLAY_WINDOW_MS;
-      return { autoplay, castMode: !!state.casting };
+      const tabUrl = sender.tab ? sender.tab.url : "";
+      return { autoplay, castMode: !!state.casting, ...(await effective(tabUrl)), resumeAt: await resumePoint(tabUrl) };
+    }
+
+    case "effective":
+      return effective(sender.tab ? sender.tab.url : "");
+
+    case "progress":
+      await saveProgress(sender.tab, msg.time, msg.duration);
+      return { ok: true };
+
+    case "playerFailed":
+      // Hoster lädt nicht → Hauptseite soll den nächsten Hoster probieren
+      await setTabState(tabId, { pendingAutoplay: Date.now() });
+      try { return await chrome.tabs.sendMessage(tabId, { type: "tryNextHoster" }, { frameId: 0 }); }
+      catch (_) { return { ok: false }; }
+
+    case "keyNext":
+      return goNext(tabId, { manual: true });
+
+    case "keySkipIntro":
+      await skipIntro(tabId);
+      return { ok: true };
+
+    case "history":
+      return getHistory();
+
+    case "openHistory": {
+      const entry = (await getHistory()).find((h) => h.key === msg.key);
+      if (!entry) return { ok: false };
+      const tab = await chrome.tabs.create({ url: entry.url });
+      await setTabState(tab.id, { pendingAutoplay: Date.now() });
+      return { ok: true };
+    }
+
+    case "forgetHistory": {
+      const { history = {} } = await chrome.storage.local.get("history");
+      delete history[msg.key];
+      await chrome.storage.local.set({ history });
+      return { ok: true };
+    }
+
+    case "seriesOf": {
+      const tab = await chrome.tabs.get(msg.tabId).catch(() => null);
+      const info = tab ? seriesInfo(tab.url) : null;
+      const { series = {} } = await chrome.storage.local.get("series");
+      return { info, own: info ? series[info.key] || null : null };
+    }
+
+    case "setSeries": {
+      const { series = {} } = await chrome.storage.local.get("series");
+      const own = { ...(series[msg.key] || {}), ...msg.values };
+      for (const k of Object.keys(own)) if (own[k] === null || own[k] === "") delete own[k];
+      if (Object.keys(own).length) series[msg.key] = own; else delete series[msg.key];
+      await chrome.storage.local.set({ series });
+      return { ok: true };
     }
 
     case "playing": {
@@ -142,7 +264,7 @@ async function handleMessage(msg, sender) {
     // --- vom Popup ---
     case "status": {
       const state = await getTabState(msg.tabId);
-      const upd = await chrome.storage.local.get(["updateAvailable", "updateRequestedAt"]);
+      const upd = await chrome.storage.local.get(["updateAvailable", "updateRequestedAt", "sleepUntil"]);
       const updater = await hasUpdater();
       return {
         state,
@@ -150,6 +272,7 @@ async function handleMessage(msg, sender) {
         update: upd.updateAvailable || null,
         updateRequestedAt: upd.updateRequestedAt || 0,
         updater,
+        sleepUntil: upd.sleepUntil || 0,
       };
     }
     case "castStatus":
@@ -384,6 +507,7 @@ async function castTab(tabId, { manual = false } = {}) {
     pendingCast: 0,
     pendingAutoplay: 0,
     castSeq: r.status ? r.status.finishedSeq : lc.finishedSeq,
+    castNextSeq: (r.status ? r.status.nextSeq : lc.nextSeq) || 0,
     ...(manual ? { count: 0, status: "" } : {}),
   });
   await chrome.storage.session.set({ castTabId: tabId });
@@ -419,6 +543,19 @@ async function pollCast() {
     const state = await getTabState(castTabId);
     let lc;
     try { lc = await lcFetch("/api/status"); } catch (_) { return; }
+
+    // Stand fürs Weiterschauen auch beim Casten merken
+    if (lc.mode === "casting" && lc.media && lc.media.duration && !state.pendingCast) {
+      const tab = await chrome.tabs.get(castTabId).catch(() => null);
+      if (tab) await saveProgress(tab, lc.media.currentTime, lc.media.duration);
+    }
+
+    // Weiter-Knopf auf der Handy-Fernbedienung (LakuenCast)
+    if (lc.nextSeq && lc.nextSeq > (state.castNextSeq || 0)) {
+      const first = state.castNextSeq === undefined;
+      await setTabState(castTabId, { castNextSeq: lc.nextSeq });
+      if (!first) { await goNext(castTabId, { manual: true }); return; }
+    }
 
     if (lc.finishedSeq > (state.castSeq || 0)) {
       await setTabState(castTabId, { castSeq: lc.finishedSeq });

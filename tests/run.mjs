@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { compareVersions, isNewer, displayVersion } from "../extension/lib/version.js";
+import { seriesInfo, episodeLabel } from "../extension/lib/series.js";
 
 let failed = 0;
 function test(name, fn) {
@@ -70,6 +71,37 @@ test("allgemein: Folgennummer in der URL", () =>
   assert.equal(next("https://example.com/show/folge-09", ["https://example.com/show/folge-10"]), "https://example.com/show/folge-10"));
 test("allgemein: ohne passenden Link → undefined", () =>
   assert.equal(next("https://example.com/show/folge-9", ["https://example.com/"]), undefined));
+
+// ---------- Serien erkennen ----------
+test("Serie s.to", () => {
+  const i = seriesInfo("https://s.to/serie/stream/3-body-problem/staffel-1/episode-4");
+  assert.equal(i.key, "s.to/3-body-problem");
+  assert.equal(i.name, "3 Body Problem");
+  assert.equal(episodeLabel(i), "S1 · E4");
+});
+test("Serie Filmpalast", () => {
+  const i = seriesInfo("https://filmpalast.to/stream/the-office-s02e05");
+  assert.equal(i.key, "filmpalast.to/the-office");
+  assert.equal(i.season, 2);
+  assert.equal(i.episode, 5);
+});
+test("Serie gleiche Serie andere Folge = gleicher Schlüssel", () =>
+  assert.equal(seriesInfo("https://example.com/show/folge-3").key, seriesInfo("https://example.com/show/folge-4").key));
+test("keine Serie", () => assert.equal(seriesInfo("https://example.com/about"), null));
+
+// ---------- Hoster-Reihenfolge ----------
+const hctx = { URL, console };
+hctx.globalThis = hctx;
+vm.runInNewContext(readFileSync(new URL("../extension/content/hosters.js", import.meta.url), "utf8"), hctx);
+test("Hoster: Deutsch vor Englisch, dann Reihenfolge", () => {
+  const c = [{ name: "VOE", lang: "en" }, { name: "Doodstream", lang: "de" }, { name: "VOE", lang: "de" }];
+  const r = hctx.LW_HOSTERS.rank(c, "de", "VOE, Doodstream");
+  assert.deepEqual(r.map((x) => `${x.name}/${x.lang}`), ["VOE/de", "Doodstream/de", "VOE/en"]);
+});
+test("Hoster: Englisch gewünscht", () => {
+  const c = [{ name: "VOE", lang: "de" }, { name: "Doodstream", lang: "en" }];
+  assert.equal(hctx.LW_HOSTERS.rank(c, "en", "VOE")[0].lang, "en");
+});
 
 if (failed) { console.log(`\n${failed} Test(s) fehlgeschlagen`); process.exit(1); }
 console.log("\nAlle Tests ok");

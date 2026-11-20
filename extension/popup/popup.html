@@ -21,6 +21,11 @@
     <button id="update-btn" class="primary">Update</button>
   </div>
 
+  <div class="history" id="history" hidden>
+    <div class="sec-title">Weiterschauen</div>
+    <div id="history-list"></div>
+  </div>
+
   <label class="row switch">
     <span>Automatisch nächste Folge</span>
     <input type="checkbox" id="enabled">
@@ -32,6 +37,27 @@
   </div>
 
   <button id="next" class="primary wide">Nächste Folge jetzt ▶</button>
+
+  <div class="sleep" id="sleep-box">
+    <label class="row"><span>😴 Sleep-Timer</span>
+      <select id="sleep">
+        <option value="0">aus</option>
+        <option value="30">30 Min.</option>
+        <option value="45">45 Min.</option>
+        <option value="60">1 Std.</option>
+        <option value="90">1,5 Std.</option>
+        <option value="120">2 Std.</option>
+      </select>
+    </label>
+    <div class="sleep-info" id="sleep-info"></div>
+  </div>
+
+  <div class="series" id="series" hidden>
+    <div class="sec-title">Für diese Serie: <span id="series-name"></span></div>
+    <label class="row"><span>Intro überspringen <small>(s)</small></span><input type="number" id="s-intro" min="0" max="600" placeholder="–"></label>
+    <label class="row"><span>Abspann überspringen <small>(s vor Ende)</small></span><input type="number" id="s-outro" min="0" max="600" placeholder="–"></label>
+    <div class="hint">Leer = allgemeine Einstellung unten.</div>
+  </div>
 
   <div class="tv" id="tv">
     <div class="tv-head">
@@ -46,8 +72,21 @@
     <summary>Einstellungen</summary>
     <label class="row"><span>Stopp nach Folgen <small>(0 = nie)</small></span><input type="number" id="stopAfter" min="0" max="99"></label>
     <label class="row"><span>Countdown vor Wechsel <small>(s)</small></span><input type="number" id="countdown" min="0" max="60"></label>
-    <label class="row"><span>Abspann überspringen <small>(s vor Ende)</small></span><input type="number" id="outroSkip" min="0" max="600"></label>
-    <label class="row"><span>Intro überspringen <small>(s)</small></span><input type="number" id="introSkip" min="0" max="600"></label>
+    <label class="row"><span>Abspann überspringen <small>(s vor Ende, alle Serien)</small></span><input type="number" id="outroSkip" min="0" max="600"></label>
+    <label class="row"><span>Intro überspringen <small>(s, alle Serien)</small></span><input type="number" id="introSkip" min="0" max="600"></label>
+    <label class="row switch"><span>An letzter Stelle weiterschauen</span><input type="checkbox" id="resume"></label>
+    <label class="row switch"><span>Lieblings-Hoster automatisch wählen</span><input type="checkbox" id="autoHoster"></label>
+    <label class="row"><span>Sprache</span>
+      <select id="language">
+        <option value="de">Deutsch</option>
+        <option value="en-sub">Englisch mit Untertitel</option>
+        <option value="en">Englisch</option>
+        <option value="any">egal</option>
+      </select>
+    </label>
+    <label class="col"><span>Hoster-Reihenfolge</span><input type="text" id="hosterOrder" spellcheck="false"></label>
+    <label class="row switch"><span>Tasten im Player: <b>N</b> nächste Folge, <b>S</b> Intro überspringen</span><input type="checkbox" id="keys"></label>
+    <div class="hint">Überall im Browser: Alt+Shift+N und Alt+Shift+S (änderbar unter brave://extensions/shortcuts).</div>
     <label class="row switch"><span>Neue Folge automatisch starten</span><input type="checkbox" id="autoplay"></label>
     <label class="row switch"><span>Nach Updates schauen</span><input type="checkbox" id="updateCheck"></label>
   </details>

@@ -1,5 +1,6 @@
 import { DEFAULTS, getSettings, setSettings } from "../lib/settings.js";
 import { displayVersion } from "../lib/version.js";
+import { episodeLabel, fmtTime } from "../lib/series.js";
 
 const $ = (id) => document.getElementById(id);
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -13,6 +14,9 @@ for (const key of Object.keys(DEFAULTS)) {
   if (el.type === "checkbox") {
     el.checked = !!settings[key];
     el.addEventListener("change", () => setSettings({ [key]: el.checked }));
+  } else if (el.tagName === "SELECT" || el.type === "text") {
+    el.value = settings[key];
+    el.addEventListener("change", () => setSettings({ [key]: el.value }));
   } else {
     el.value = settings[key];
     el.addEventListener("change", () => {
@@ -33,6 +37,8 @@ async function refresh() {
   let text = `Folgen in diesem Tab: ${s.count}`;
   if (s.status === "stopped") text = `Gestoppt nach ${s.count} Folgen`;
   if (s.status === "end") text = "Keine weitere Folge gefunden";
+  if (s.status === "sleep") text = "😴 Sleep-Timer: angehalten";
+  renderSleep(st.sleepUntil);
   $("status").textContent = text;
 
   const banner = $("update");
@@ -79,7 +85,87 @@ $("next").addEventListener("click", async () => {
 
 $("reset").addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ type: "resetCount", tabId });
-  // ---------- Fernseher (LakuenCast) ----------
+  // ---------- Sleep-Timer ----------
+function renderSleep(until) {
+  const info = $("sleep-info");
+  if (until && until > Date.now()) {
+    const t = new Date(until).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+    info.textContent = `Nach der Folge, die um ${t} läuft, ist Schluss.`;
+    if (document.activeElement !== $("sleep") && $("sleep").value === "0") $("sleep").value = "custom";
+  } else {
+    info.textContent = "";
+    if (document.activeElement !== $("sleep")) $("sleep").value = "0";
+  }
+}
+{
+  const custom = document.createElement("option");
+  custom.value = "custom";
+  custom.textContent = "läuft";
+  custom.hidden = true;
+  $("sleep").appendChild(custom);
+}
+$("sleep").addEventListener("change", async () => {
+  const min = parseInt($("sleep").value, 10) || 0;
+  if (min) await chrome.storage.local.set({ sleepUntil: Date.now() + min * 60_000 });
+  else await chrome.storage.local.remove("sleepUntil");
+  $("sleep").blur();
+  refresh();
+});
+
+// ---------- Weiterschauen ----------
+async function renderHistory() {
+  const list = await chrome.runtime.sendMessage({ type: "history" });
+  const box = $("history");
+  const items = (list || []).slice(0, 5);
+  box.hidden = !items.length;
+  const wrap = $("history-list");
+  wrap.innerHTML = "";
+  for (const h of items) {
+    const row = document.createElement("div");
+    row.className = "h-item";
+    row.innerHTML = `<div class="h-main"><div class="h-name"></div><div class="h-sub"></div>
+      <div class="h-bar"><div></div></div></div><button class="h-x" title="Entfernen">✕</button>`;
+    row.querySelector(".h-name").textContent = h.name;
+    row.querySelector(".h-sub").textContent = `${episodeLabel(h)} · ${fmtTime(h.time)} / ${fmtTime(h.duration)}`;
+    row.querySelector(".h-bar > div").style.width = `${Math.min(100, (100 * h.time) / (h.duration || 1))}%`;
+    row.querySelector(".h-main").onclick = async () => {
+      await chrome.runtime.sendMessage({ type: "openHistory", key: h.key });
+      window.close();
+    };
+    row.querySelector(".h-x").onclick = async () => {
+      await chrome.runtime.sendMessage({ type: "forgetHistory", key: h.key });
+      renderHistory();
+    };
+    wrap.appendChild(row);
+  }
+}
+
+// ---------- Für diese Serie ----------
+let seriesKey = null;
+async function renderSeries() {
+  const r = await chrome.runtime.sendMessage({ type: "seriesOf", tabId });
+  $("series").hidden = !(r && r.info);
+  if (!r || !r.info) return;
+  seriesKey = r.info.key;
+  $("series-name").textContent = r.info.name;
+  $("s-intro").value = r.own && r.own.introSkip != null ? r.own.introSkip : "";
+  $("s-outro").value = r.own && r.own.outroSkip != null ? r.own.outroSkip : "";
+  $("s-intro").placeholder = String(settings.introSkip || 0);
+  $("s-outro").placeholder = String(settings.outroSkip || 0);
+}
+for (const [id, key] of [["s-intro", "introSkip"], ["s-outro", "outroSkip"]]) {
+  $(id).addEventListener("change", () => {
+    const v = $(id).value.trim();
+    const n = v === "" ? null : Math.max(0, Math.min(600, parseInt(v, 10) || 0));
+    if (n !== null) $(id).value = n;
+    chrome.runtime.sendMessage({ type: "setSeries", key: seriesKey, values: { [key]: n } });
+  });
+}
+
+renderHistory();
+renderSeries();
+
+// ---------- Fernseher (LakuenCast) ----------
 let tv = null;
 async function refreshTv() {
   tv = await chrome.runtime.sendMessage({ type: "castStatus", tabId });
@@ -139,7 +225,87 @@ $("check").addEventListener("click", async () => {
   $("check").textContent = "Suche …";
   const r = await chrome.runtime.sendMessage({ type: "checkUpdate" });
   $("check").textContent = r && r.ok ? (r.update ? "Update gefunden" : "Aktuell") : "GitHub nicht erreichbar";
-  // ---------- Fernseher (LakuenCast) ----------
+  // ---------- Sleep-Timer ----------
+function renderSleep(until) {
+  const info = $("sleep-info");
+  if (until && until > Date.now()) {
+    const t = new Date(until).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+    info.textContent = `Nach der Folge, die um ${t} läuft, ist Schluss.`;
+    if (document.activeElement !== $("sleep") && $("sleep").value === "0") $("sleep").value = "custom";
+  } else {
+    info.textContent = "";
+    if (document.activeElement !== $("sleep")) $("sleep").value = "0";
+  }
+}
+{
+  const custom = document.createElement("option");
+  custom.value = "custom";
+  custom.textContent = "läuft";
+  custom.hidden = true;
+  $("sleep").appendChild(custom);
+}
+$("sleep").addEventListener("change", async () => {
+  const min = parseInt($("sleep").value, 10) || 0;
+  if (min) await chrome.storage.local.set({ sleepUntil: Date.now() + min * 60_000 });
+  else await chrome.storage.local.remove("sleepUntil");
+  $("sleep").blur();
+  refresh();
+});
+
+// ---------- Weiterschauen ----------
+async function renderHistory() {
+  const list = await chrome.runtime.sendMessage({ type: "history" });
+  const box = $("history");
+  const items = (list || []).slice(0, 5);
+  box.hidden = !items.length;
+  const wrap = $("history-list");
+  wrap.innerHTML = "";
+  for (const h of items) {
+    const row = document.createElement("div");
+    row.className = "h-item";
+    row.innerHTML = `<div class="h-main"><div class="h-name"></div><div class="h-sub"></div>
+      <div class="h-bar"><div></div></div></div><button class="h-x" title="Entfernen">✕</button>`;
+    row.querySelector(".h-name").textContent = h.name;
+    row.querySelector(".h-sub").textContent = `${episodeLabel(h)} · ${fmtTime(h.time)} / ${fmtTime(h.duration)}`;
+    row.querySelector(".h-bar > div").style.width = `${Math.min(100, (100 * h.time) / (h.duration || 1))}%`;
+    row.querySelector(".h-main").onclick = async () => {
+      await chrome.runtime.sendMessage({ type: "openHistory", key: h.key });
+      window.close();
+    };
+    row.querySelector(".h-x").onclick = async () => {
+      await chrome.runtime.sendMessage({ type: "forgetHistory", key: h.key });
+      renderHistory();
+    };
+    wrap.appendChild(row);
+  }
+}
+
+// ---------- Für diese Serie ----------
+let seriesKey = null;
+async function renderSeries() {
+  const r = await chrome.runtime.sendMessage({ type: "seriesOf", tabId });
+  $("series").hidden = !(r && r.info);
+  if (!r || !r.info) return;
+  seriesKey = r.info.key;
+  $("series-name").textContent = r.info.name;
+  $("s-intro").value = r.own && r.own.introSkip != null ? r.own.introSkip : "";
+  $("s-outro").value = r.own && r.own.outroSkip != null ? r.own.outroSkip : "";
+  $("s-intro").placeholder = String(settings.introSkip || 0);
+  $("s-outro").placeholder = String(settings.outroSkip || 0);
+}
+for (const [id, key] of [["s-intro", "introSkip"], ["s-outro", "outroSkip"]]) {
+  $(id).addEventListener("change", () => {
+    const v = $(id).value.trim();
+    const n = v === "" ? null : Math.max(0, Math.min(600, parseInt(v, 10) || 0));
+    if (n !== null) $(id).value = n;
+    chrome.runtime.sendMessage({ type: "setSeries", key: seriesKey, values: { [key]: n } });
+  });
+}
+
+renderHistory();
+renderSeries();
+
+// ---------- Fernseher (LakuenCast) ----------
 let tv = null;
 async function refreshTv() {
   tv = await chrome.runtime.sendMessage({ type: "castStatus", tabId });
@@ -194,6 +360,86 @@ refresh();
 refreshTv();
 setInterval(refreshTv, 3000);
 });
+
+// ---------- Sleep-Timer ----------
+function renderSleep(until) {
+  const info = $("sleep-info");
+  if (until && until > Date.now()) {
+    const t = new Date(until).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+    info.textContent = `Nach der Folge, die um ${t} läuft, ist Schluss.`;
+    if (document.activeElement !== $("sleep") && $("sleep").value === "0") $("sleep").value = "custom";
+  } else {
+    info.textContent = "";
+    if (document.activeElement !== $("sleep")) $("sleep").value = "0";
+  }
+}
+{
+  const custom = document.createElement("option");
+  custom.value = "custom";
+  custom.textContent = "läuft";
+  custom.hidden = true;
+  $("sleep").appendChild(custom);
+}
+$("sleep").addEventListener("change", async () => {
+  const min = parseInt($("sleep").value, 10) || 0;
+  if (min) await chrome.storage.local.set({ sleepUntil: Date.now() + min * 60_000 });
+  else await chrome.storage.local.remove("sleepUntil");
+  $("sleep").blur();
+  refresh();
+});
+
+// ---------- Weiterschauen ----------
+async function renderHistory() {
+  const list = await chrome.runtime.sendMessage({ type: "history" });
+  const box = $("history");
+  const items = (list || []).slice(0, 5);
+  box.hidden = !items.length;
+  const wrap = $("history-list");
+  wrap.innerHTML = "";
+  for (const h of items) {
+    const row = document.createElement("div");
+    row.className = "h-item";
+    row.innerHTML = `<div class="h-main"><div class="h-name"></div><div class="h-sub"></div>
+      <div class="h-bar"><div></div></div></div><button class="h-x" title="Entfernen">✕</button>`;
+    row.querySelector(".h-name").textContent = h.name;
+    row.querySelector(".h-sub").textContent = `${episodeLabel(h)} · ${fmtTime(h.time)} / ${fmtTime(h.duration)}`;
+    row.querySelector(".h-bar > div").style.width = `${Math.min(100, (100 * h.time) / (h.duration || 1))}%`;
+    row.querySelector(".h-main").onclick = async () => {
+      await chrome.runtime.sendMessage({ type: "openHistory", key: h.key });
+      window.close();
+    };
+    row.querySelector(".h-x").onclick = async () => {
+      await chrome.runtime.sendMessage({ type: "forgetHistory", key: h.key });
+      renderHistory();
+    };
+    wrap.appendChild(row);
+  }
+}
+
+// ---------- Für diese Serie ----------
+let seriesKey = null;
+async function renderSeries() {
+  const r = await chrome.runtime.sendMessage({ type: "seriesOf", tabId });
+  $("series").hidden = !(r && r.info);
+  if (!r || !r.info) return;
+  seriesKey = r.info.key;
+  $("series-name").textContent = r.info.name;
+  $("s-intro").value = r.own && r.own.introSkip != null ? r.own.introSkip : "";
+  $("s-outro").value = r.own && r.own.outroSkip != null ? r.own.outroSkip : "";
+  $("s-intro").placeholder = String(settings.introSkip || 0);
+  $("s-outro").placeholder = String(settings.outroSkip || 0);
+}
+for (const [id, key] of [["s-intro", "introSkip"], ["s-outro", "outroSkip"]]) {
+  $(id).addEventListener("change", () => {
+    const v = $(id).value.trim();
+    const n = v === "" ? null : Math.max(0, Math.min(600, parseInt(v, 10) || 0));
+    if (n !== null) $(id).value = n;
+    chrome.runtime.sendMessage({ type: "setSeries", key: seriesKey, values: { [key]: n } });
+  });
+}
+
+renderHistory();
+renderSeries();
 
 // ---------- Fernseher (LakuenCast) ----------
 let tv = null;
