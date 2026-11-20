@@ -41,6 +41,7 @@ async function updateBadge(tabId, state) {
   let color = "#7c5cff";
   if (state.status === "stopped") { text = "STOP"; color = "#e5484d"; }
   else if (state.status === "end") { text = "ENDE"; color = "#e5484d"; }
+  else if (state.casting) { text = "TV"; color = "#30a46c"; }
   else if (state.count > 0) { text = String(state.count); }
   else if (updateAvailable) { text = "NEU"; color = "#30a46c"; }
   try {
@@ -51,7 +52,7 @@ async function updateBadge(tabId, state) {
 
 // ---------- Nächste Folge ----------
 
-async function goNext(tabId, { manual = false } = {}) {
+async function goNext(tabId, { manual = false, fromCast = false } = {}) {
   const settings = await getSettings();
   const state = await getTabState(tabId);
 
@@ -68,7 +69,7 @@ async function goNext(tabId, { manual = false } = {}) {
   try {
     reply = await chrome.tabs.sendMessage(
       tabId,
-      { type: "goNext", countdown: manual ? 0 : settings.countdown },
+      { type: "goNext", countdown: manual || fromCast ? 0 : settings.countdown },
       { frameId: 0 }
     );
   } catch (e) {
@@ -79,11 +80,12 @@ async function goNext(tabId, { manual = false } = {}) {
     await setTabState(tabId, {
       count: manual ? state.count : state.count + 1,
       lastEnded: Date.now(),
-      pendingAutoplay: settings.autoplay ? Date.now() : 0,
+      pendingAutoplay: settings.autoplay || state.casting ? Date.now() : 0,
+      pendingCast: state.casting ? Date.now() : 0,
       status: "",
     });
   } else if (reply && reply.reason === "noNext") {
-    await setTabState(tabId, { status: "end", lastEnded: Date.now(), pendingAutoplay: 0 });
+    await setTabState(tabId, { status: "end", lastEnded: Date.now(), pendingAutoplay: 0, pendingCast: 0 });
   }
   return reply || { ok: false, reason: "unknown" };
 }
@@ -99,14 +101,27 @@ async function handleMessage(msg, sender) {
   const tabId = sender.tab ? sender.tab.id : msg.tabId;
 
   switch (msg.type) {
-    case "videoEnded":
+    case "videoEnded": {
+      const st = await getTabState(tabId);
+      if (st.casting) return { ok: false, reason: "casting" }; // Ende kommt vom Fernseher
       return goNext(tabId);
+    }
+
+    case "videoSrc":
+      // Direkte Video-Adresse aus dem Player (z. B. .mp4)
+      await rememberMedia(tabId, { url: msg.url, kind: "video", headers: { Referer: msg.referer || "" } });
+      return { ok: true };
+
+    case "castTick":
+      // Content-Script im gecasteten Tab hält uns wach und lässt uns LakuenCast abfragen
+      await pollCast();
+      return { ok: true };
 
     case "hello": {
       // Ein Frame fragt beim Laden: soll ich automatisch starten?
       const state = await getTabState(tabId);
       const autoplay = state.pendingAutoplay > 0 && Date.now() - state.pendingAutoplay < AUTOPLAY_WINDOW_MS;
-      return { autoplay };
+      return { autoplay, castMode: !!state.casting };
     }
 
     case "playing": {
@@ -132,6 +147,12 @@ async function handleMessage(msg, sender) {
         updater,
       };
     }
+    case "castStatus":
+      return castStatus(msg.tabId);
+    case "castNow":
+      return castTab(msg.tabId, { manual: true });
+    case "castStop":
+      return stopCast(msg.tabId);
     case "nextNow":
       return goNext(msg.tabId, { manual: true });
     case "resetCount":
@@ -247,3 +268,174 @@ function setup() {
 
 chrome.runtime.onStartup.addListener(setup);
 chrome.runtime.onInstalled.addListener(setup);
+
+// ---------- An den Fernseher senden (LakuenCast) ----------
+//
+// LakuenCast (eigenes Programm, github.com/elkarbeenus/LakuenCast) läuft auf dem PC
+// und spricht mit dem Chromecast. Wir merken uns, welche Video-Adressen der Player
+// lädt (.m3u8/.mp4), und schicken die passende samt Referer/Cookies an LakuenCast.
+// Ist die Folge auf dem Fernseher zu Ende, öffnen wir die nächste Folge im Tab,
+// spielen sie stumm kurz an, fangen die neue Adresse ab und senden sie hinterher.
+
+const LAKUENCAST = "http://127.0.0.1:47800";
+const MEDIA_RE = /\.(m3u8|mp4)(\?|#|$)/i;
+const SKIP_RE = /(ads?|preroll|vast|banner|promo)[\/._-]/i;
+
+async function lcFetch(path, body) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), body ? 30000 : 2000);
+  try {
+    const res = await fetch(LAKUENCAST + path, body ? {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-LakuenCast": "1" },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    } : { cache: "no-store", signal: ctrl.signal });
+    return await res.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function getMedia(tabId) {
+  const key = `media_${tabId}`;
+  return (await chrome.storage.session.get(key))[key] || [];
+}
+
+async function rememberMedia(tabId, item) {
+  if (!item.url || !/^https?:/.test(item.url) || SKIP_RE.test(item.url)) return;
+  const key = `media_${tabId}`;
+  const list = await getMedia(tabId);
+  if (list.some((m) => m.url === item.url)) return;
+  list.push({ ...item, ts: Date.now() });
+  await chrome.storage.session.set({ [key]: list.slice(-15) });
+
+  const state = await getTabState(tabId);
+  if (state.pendingCast && Date.now() - state.pendingCast < AUTOPLAY_WINDOW_MS) {
+    // Neue Folge lädt: kurz warten, bis auch die Haupt-Playlist da ist, dann senden
+    clearTimeout(rememberMedia.timer);
+    rememberMedia.timer = setTimeout(() => castTab(tabId).catch(() => {}), 1500);
+  }
+}
+
+function pickMedia(list) {
+  const m3u8 = list.filter((m) => /\.m3u8/i.test(m.url));
+  if (m3u8.length) {
+    return m3u8.find((m) => /master|playlist|index/i.test(m.url)) || m3u8[0];
+  }
+  const mp4 = list.filter((m) => /\.mp4/i.test(m.url));
+  return mp4[mp4.length - 1] || null;
+}
+
+chrome.webRequest.onSendHeaders.addListener(
+  (details) => {
+    if (details.tabId < 0 || !MEDIA_RE.test(details.url)) return;
+    const headers = {};
+    for (const h of details.requestHeaders || []) {
+      const name = h.name.toLowerCase();
+      if (["referer", "user-agent", "cookie", "origin"].includes(name)) headers[h.name] = h.value;
+    }
+    const kind = /\.m3u8/i.test(details.url) ? "hls" : "mp4";
+    rememberMedia(details.tabId, { url: details.url, kind, headers });
+  },
+  { urls: ["http://*/*", "https://*/*"], types: ["media", "xmlhttprequest", "other"] },
+  ["requestHeaders", "extraHeaders"]
+);
+
+// Neue Seite im Tab → alte Video-Adressen vergessen
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.status === "loading" && info.url) chrome.storage.session.remove(`media_${tabId}`);
+});
+chrome.tabs.onRemoved.addListener((tabId) => {
+  chrome.storage.session.remove(`media_${tabId}`);
+});
+
+async function setCastMode(tabId, on) {
+  try { await chrome.tabs.sendMessage(tabId, { type: "castMode", on }); } catch (_) { /* Seite lädt gerade */ }
+}
+
+async function castTab(tabId, { manual = false } = {}) {
+  const tab = await chrome.tabs.get(tabId);
+  const media = pickMedia(await getMedia(tabId));
+  if (!media) return { ok: false, reason: "noVideo" };
+
+  let lc;
+  try { lc = await lcFetch("/api/status"); } catch (_) { return { ok: false, reason: "noLakuenCast" }; }
+
+  const headers = { ...media.headers };
+  if (!headers.Referer && !headers.referer) headers.Referer = tab.url;
+  let r;
+  try {
+    r = await lcFetch("/api/cast", { url: media.url, headers, title: tab.title || "" });
+  } catch (e) {
+    return { ok: false, reason: "error", error: String(e.message || e) };
+  }
+  if (!r.ok) {
+    await setTabState(tabId, { pendingCast: 0 });
+    return { ok: false, reason: "error", error: r.error };
+  }
+  await setTabState(tabId, {
+    casting: true,
+    pendingCast: 0,
+    pendingAutoplay: 0,
+    castSeq: r.status ? r.status.finishedSeq : lc.finishedSeq,
+    ...(manual ? { count: 0, status: "" } : {}),
+  });
+  await chrome.storage.session.set({ castTabId: tabId });
+  await setCastMode(tabId, true);
+  chrome.alarms.create("castpoll", { periodInMinutes: 0.5 });
+  return { ok: true };
+}
+
+async function stopCast(tabId) {
+  try { await lcFetch("/api/stop", {}); } catch (_) { /* LakuenCast schon zu */ }
+  await setTabState(tabId, { casting: false, pendingCast: 0 });
+  await chrome.storage.session.remove("castTabId");
+  await setCastMode(tabId, false);
+  chrome.alarms.clear("castpoll");
+  return { ok: true };
+}
+
+async function castStatus(tabId) {
+  let lc = null;
+  try { lc = await lcFetch("/api/status"); } catch (_) { /* läuft nicht */ }
+  const state = await getTabState(tabId);
+  const media = pickMedia(await getMedia(tabId));
+  return { running: !!lc, lc, casting: !!state.casting, hasVideo: !!media };
+}
+
+let polling = false;
+async function pollCast() {
+  if (polling) return;
+  polling = true;
+  try {
+    const { castTabId } = await chrome.storage.session.get("castTabId");
+    if (castTabId === undefined) { chrome.alarms.clear("castpoll"); return; }
+    const state = await getTabState(castTabId);
+    let lc;
+    try { lc = await lcFetch("/api/status"); } catch (_) { return; }
+
+    if (lc.finishedSeq > (state.castSeq || 0)) {
+      await setTabState(castTabId, { castSeq: lc.finishedSeq });
+      const r = await goNext(castTabId, { fromCast: true });
+      if (!r.ok) {
+        // Ende der Serie oder "Stopp nach X Folgen"
+        await setTabState(castTabId, { casting: false });
+        await chrome.storage.session.remove("castTabId");
+      }
+      return;
+    }
+    // In LakuenCast auf Stopp gedrückt?
+    if (lc.mode === "idle" && !state.pendingCast && state.casting) {
+      await setTabState(castTabId, { casting: false });
+      await chrome.storage.session.remove("castTabId");
+      await setCastMode(castTabId, false);
+    }
+  } finally {
+    polling = false;
+  }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "castpoll") pollCast();
+});

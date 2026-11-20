@@ -79,14 +79,173 @@ $("next").addEventListener("click", async () => {
 
 $("reset").addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ type: "resetCount", tabId });
+  // ---------- Fernseher (LakuenCast) ----------
+let tv = null;
+async function refreshTv() {
+  tv = await chrome.runtime.sendMessage({ type: "castStatus", tabId });
+  const btn = $("cast");
+  const hint = $("tv-hint");
+  hint.textContent = "";
+  btn.classList.remove("stop");
+  btn.disabled = false;
+  if (!tv || !tv.running) {
+    $("tv-state").textContent = "LakuenCast läuft nicht";
+    btn.textContent = "An Fernseher senden";
+    btn.disabled = true;
+    hint.innerHTML = 'LakuenCast starten (<a href="https://github.com/elkarbeenus/LakuenCast" target="_blank">herunterladen</a>).';
+    return;
+  }
+  const dev = tv.lc.selected;
+  $("tv-state").textContent = dev ? dev.name : "kein Gerät gewählt";
+  if (tv.casting) {
+    btn.textContent = "■ Senden beenden";
+    btn.classList.add("stop");
+    hint.textContent = "Läuft auf dem Fernseher. Die nächste Folge kommt automatisch.";
+  } else {
+    btn.textContent = "📺 An Fernseher senden";
+    if (!dev) { btn.disabled = true; hint.textContent = "In LakuenCast einen Fernseher auswählen."; }
+    else if (!tv.hasVideo) hint.textContent = "Tipp: Das Video kurz anspielen, dann senden.";
+  }
+}
+
+$("cast").addEventListener("click", async () => {
+  const btn = $("cast");
+  btn.disabled = true;
+  if (tv && tv.casting) {
+    await chrome.runtime.sendMessage({ type: "castStop", tabId });
+  } else {
+    btn.textContent = "Sende …";
+    const r = await chrome.runtime.sendMessage({ type: "castNow", tabId });
+    if (!r || !r.ok) {
+      const reasons = {
+        noVideo: "Kein Video gefunden. Video im Browser kurz starten, dann nochmal senden.",
+        noLakuenCast: "LakuenCast läuft nicht.",
+      };
+      await refreshTv();
+      $("tv-hint").textContent = reasons[r && r.reason] || `Fehler: ${(r && r.error) || "unbekannt"}`;
+      return;
+    }
+  }
+  await refreshTv();
   refresh();
+});
+
+refresh();
+refreshTv();
+setInterval(refreshTv, 3000);
 });
 
 $("check").addEventListener("click", async () => {
   $("check").textContent = "Suche …";
   const r = await chrome.runtime.sendMessage({ type: "checkUpdate" });
   $("check").textContent = r && r.ok ? (r.update ? "Update gefunden" : "Aktuell") : "GitHub nicht erreichbar";
+  // ---------- Fernseher (LakuenCast) ----------
+let tv = null;
+async function refreshTv() {
+  tv = await chrome.runtime.sendMessage({ type: "castStatus", tabId });
+  const btn = $("cast");
+  const hint = $("tv-hint");
+  hint.textContent = "";
+  btn.classList.remove("stop");
+  btn.disabled = false;
+  if (!tv || !tv.running) {
+    $("tv-state").textContent = "LakuenCast läuft nicht";
+    btn.textContent = "An Fernseher senden";
+    btn.disabled = true;
+    hint.innerHTML = 'LakuenCast starten (<a href="https://github.com/elkarbeenus/LakuenCast" target="_blank">herunterladen</a>).';
+    return;
+  }
+  const dev = tv.lc.selected;
+  $("tv-state").textContent = dev ? dev.name : "kein Gerät gewählt";
+  if (tv.casting) {
+    btn.textContent = "■ Senden beenden";
+    btn.classList.add("stop");
+    hint.textContent = "Läuft auf dem Fernseher. Die nächste Folge kommt automatisch.";
+  } else {
+    btn.textContent = "📺 An Fernseher senden";
+    if (!dev) { btn.disabled = true; hint.textContent = "In LakuenCast einen Fernseher auswählen."; }
+    else if (!tv.hasVideo) hint.textContent = "Tipp: Das Video kurz anspielen, dann senden.";
+  }
+}
+
+$("cast").addEventListener("click", async () => {
+  const btn = $("cast");
+  btn.disabled = true;
+  if (tv && tv.casting) {
+    await chrome.runtime.sendMessage({ type: "castStop", tabId });
+  } else {
+    btn.textContent = "Sende …";
+    const r = await chrome.runtime.sendMessage({ type: "castNow", tabId });
+    if (!r || !r.ok) {
+      const reasons = {
+        noVideo: "Kein Video gefunden. Video im Browser kurz starten, dann nochmal senden.",
+        noLakuenCast: "LakuenCast läuft nicht.",
+      };
+      await refreshTv();
+      $("tv-hint").textContent = reasons[r && r.reason] || `Fehler: ${(r && r.error) || "unbekannt"}`;
+      return;
+    }
+  }
+  await refreshTv();
   refresh();
 });
 
 refresh();
+refreshTv();
+setInterval(refreshTv, 3000);
+});
+
+// ---------- Fernseher (LakuenCast) ----------
+let tv = null;
+async function refreshTv() {
+  tv = await chrome.runtime.sendMessage({ type: "castStatus", tabId });
+  const btn = $("cast");
+  const hint = $("tv-hint");
+  hint.textContent = "";
+  btn.classList.remove("stop");
+  btn.disabled = false;
+  if (!tv || !tv.running) {
+    $("tv-state").textContent = "LakuenCast läuft nicht";
+    btn.textContent = "An Fernseher senden";
+    btn.disabled = true;
+    hint.innerHTML = 'LakuenCast starten (<a href="https://github.com/elkarbeenus/LakuenCast" target="_blank">herunterladen</a>).';
+    return;
+  }
+  const dev = tv.lc.selected;
+  $("tv-state").textContent = dev ? dev.name : "kein Gerät gewählt";
+  if (tv.casting) {
+    btn.textContent = "■ Senden beenden";
+    btn.classList.add("stop");
+    hint.textContent = "Läuft auf dem Fernseher. Die nächste Folge kommt automatisch.";
+  } else {
+    btn.textContent = "📺 An Fernseher senden";
+    if (!dev) { btn.disabled = true; hint.textContent = "In LakuenCast einen Fernseher auswählen."; }
+    else if (!tv.hasVideo) hint.textContent = "Tipp: Das Video kurz anspielen, dann senden.";
+  }
+}
+
+$("cast").addEventListener("click", async () => {
+  const btn = $("cast");
+  btn.disabled = true;
+  if (tv && tv.casting) {
+    await chrome.runtime.sendMessage({ type: "castStop", tabId });
+  } else {
+    btn.textContent = "Sende …";
+    const r = await chrome.runtime.sendMessage({ type: "castNow", tabId });
+    if (!r || !r.ok) {
+      const reasons = {
+        noVideo: "Kein Video gefunden. Video im Browser kurz starten, dann nochmal senden.",
+        noLakuenCast: "LakuenCast läuft nicht.",
+      };
+      await refreshTv();
+      $("tv-hint").textContent = reasons[r && r.reason] || `Fehler: ${(r && r.error) || "unbekannt"}`;
+      return;
+    }
+  }
+  await refreshTv();
+  refresh();
+});
+
+refresh();
+refreshTv();
+setInterval(refreshTv, 3000);

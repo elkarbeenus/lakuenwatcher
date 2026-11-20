@@ -10,6 +10,8 @@
   const DEFAULTS = { enabled: true, outroSkip: 0, introSkip: 0, autoplay: true };
   let settings = { ...DEFAULTS };
   let autoplayRequested = false;
+  let castMode = false;
+  let castTimer = null;
   const seen = new WeakSet();
 
   // Erweiterung neu geladen (z. B. nach Update)? Dann ist dieser alte Content-Script
@@ -24,7 +26,30 @@
   });
 
   send({ type: "hello" }).then((r) => {
+    if (r && r.castMode) setCastMode(true, { keepPlaying: !!r.autoplay });
     if (r && r.autoplay) { autoplayRequested = true; tryAutoplay(); }
+  });
+
+  // ---------- Fernseher-Modus (LakuenCast) ----------
+  // Das Video läuft auf dem Chromecast: hier stumm und pausiert lassen.
+  function setCastMode(on, { keepPlaying = false } = {}) {
+    castMode = on;
+    clearInterval(castTimer);
+    if (!on) return;
+    if (!keepPlaying) holdLocalVideo();
+    // Nur der oberste Frame hält den Hintergrund wach und fragt LakuenCast ab
+    if (window.top === window) castTimer = setInterval(() => send({ type: "castTick" }), 5000);
+  }
+
+  function holdLocalVideo() {
+    document.querySelectorAll("video").forEach((v) => {
+      v.muted = true;
+      if (!v.paused) v.pause();
+    });
+  }
+
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === "castMode") setCastMode(!!msg.on);
   });
 
   const isEpisode = (v) => Number.isFinite(v.duration) && v.duration >= MIN_EPISODE_SECONDS;
@@ -41,13 +66,22 @@
     };
 
     const report = () => {
-      if (reported || !settings.enabled || !isEpisode(video)) return;
+      if (castMode || reported || !settings.enabled || !isEpisode(video)) return;
       reported = true;
       send({ type: "videoEnded", duration: video.duration });
     };
 
-    video.addEventListener("loadedmetadata", resetIfNewSource);
+    video.addEventListener("loadedmetadata", () => {
+      resetIfNewSource();
+      // Direkte Video-Adresse (kein blob:) für "An Fernseher senden" merken
+      const src = video.currentSrc;
+      if (/^https?:/.test(src) && isEpisode(video)) send({ type: "videoSrc", url: src, referer: location.href });
+    });
     video.addEventListener("ended", report);
+    video.addEventListener("play", () => {
+      // Läuft auf dem Fernseher → hier nicht weiterspielen
+      if (castMode && !autoplayRequested && isEpisode(video)) { video.muted = true; video.pause(); }
+    });
     video.addEventListener("timeupdate", () => {
       if (!isEpisode(video)) return;
       const remaining = video.duration - video.currentTime;
@@ -97,7 +131,7 @@
   }
 
   function tryAutoplay() {
-    if (!settings.autoplay) return;
+    if (!settings.autoplay && !castMode) return;
     let tries = 0;
     const timer = setInterval(() => {
       tries++;
@@ -107,6 +141,7 @@
         return;
       }
       if (v) {
+        if (castMode) v.muted = true; // stumm darf immer automatisch starten
         v.play().catch(() => {
           // Brave blockiert Autoplay mit Ton → Play-Knopf des Players versuchen
           for (const sel of PLAY_SELECTORS) {

@@ -13,6 +13,7 @@ Browser-Erweiterung für **Brave** (und andere Chromium-Browser wie Chrome und E
 - **Abspann überspringen**: X Sekunden vor Ende schon wechseln
 - **Intro überspringen**: beim Start X Sekunden vorspulen
 - Knopf **„Nächste Folge jetzt“** im Popup
+- **An Fernseher senden**: zusammen mit [LakuenCast](https://github.com/elkarbeenus/LakuenCast) läuft die Folge auf dem Chromecast, inklusive Auto-Next
 - **Update mit einem Klick** direkt in der Erweiterung
 
 ### Seiten-Profile
@@ -48,6 +49,14 @@ Unter [Releases](https://github.com/elkarbeenus/lakuenwatcher/releases/latest) `
 ### Autoplay mit Ton
 
 Brave blockiert oft Videos, die mit Ton von selbst starten. Für die Streaming-Seite einmal erlauben: Schloss-Symbol in der Adressleiste → **Website-Einstellungen** → **Autoplay: Zulassen**.
+
+## Auf dem Fernseher schauen (Chromecast)
+
+1. [LakuenCast](https://github.com/elkarbeenus/LakuenCast) starten und dort den Fernseher auswählen.
+2. Die Folge im Browser kurz anspielen, damit LakuenWatcher die Videoadresse kennt.
+3. Im Popup **„📺 An Fernseher senden“** klicken.
+
+Die Folge läuft dann direkt auf dem Chromecast, im Browser bleibt sie stumm und pausiert. Ist sie zu Ende, öffnet LakuenWatcher die nächste Folge, spielt sie stumm kurz an und schickt sie automatisch an den Fernseher. „Stopp nach X Folgen“ gilt dabei auch.
 
 ## Updates
 

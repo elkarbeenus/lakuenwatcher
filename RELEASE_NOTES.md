@@ -1,6 +1,5 @@
-Erste Version von LakuenWatcher.
+Neu in v0.2.0: An den Fernseher senden.
 
-- Erkennt das Ende einer Folge, auch in eingebetteten Playern (iframe)
-- Öffnet automatisch die nächste Folge (SerienStream/AniWorld, Filmpalast, allgemein)
-- Countdown mit Abbrechen, Stopp nach X Folgen, Intro/Abspann überspringen
-- Ein-Klick-Update aus der Erweiterung (nach einmaligem `install.sh`)
+- Knopf „📺 An Fernseher senden“ im Popup, zusammen mit LakuenCast (github.com/elkarbeenus/LakuenCast)
+- Die Folge läuft auf dem Chromecast, im Browser bleibt sie stumm und pausiert
+- Auto-Next auch auf dem Fernseher: Ist die Folge zu Ende, kommt automatisch die nächste

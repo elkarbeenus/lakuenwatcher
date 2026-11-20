@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "LakuenWatcher",
   "short_name": "LakuenWatcher",
-  "version": "0.1.0",
-  "version_name": "0.1.0",
+  "version": "0.2.0",
+  "version_name": "0.2.0",
   "description": "Spielt automatisch die nächste Folge ab, wenn eine Folge zu Ende ist.",
   "icons": {
     "16": "icons/icon16.png",
@@ -23,19 +23,37 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["storage", "tabs", "alarms", "downloads"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "storage",
+    "tabs",
+    "alarms",
+    "downloads",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/frame.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/frame.js"
+      ],
       "all_frames": true,
       "match_about_blank": true,
       "run_at": "document_idle"
     },
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content/profiles.js", "content/page.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content/profiles.js",
+        "content/page.js"
+      ],
       "all_frames": false,
       "run_at": "document_idle"
     }
