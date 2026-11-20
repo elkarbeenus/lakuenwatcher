@@ -33,7 +33,7 @@
     const url = location.href;
     for (const profile of profileFor(location.hostname)) {
       const r = profile.findNext(links, url);
-      if (typeof r === "string") return { url: r, profile: profile.id };
+      if (typeof r === "string") return { url: r, profile: profile.id, profileObj: profile };
       if (r === null) return null; // Profil ist sicher: Serie zu Ende
     }
     const btn = findNextButton();
@@ -75,9 +75,98 @@
     return { cancel: () => finish(() => {}) };
   }
 
-  function open(next) {
-    if (next.url) location.href = next.url;
-    else if (next.click) next.click.click();
+  // ---------- Wechsel ohne Neuladen ----------
+  // Brave/Chrome lassen ein Video nur mit Ton von selbst starten, wenn auf der Seite
+  // vorher geklickt wurde. Bei einem normalen Seitenwechsel geht dieser Klick verloren.
+  // Darum: nächste Folgenseite im Hintergrund laden, nur den Player-Rahmen austauschen
+  // und die Adresse anpassen. Der Klick von vorher gilt weiter.
+
+  const AD_RE = /(ads?|banner|doubleclick|popunder|track)[\/._-]/i;
+
+  function playerIframes(doc) {
+    return Array.from(doc.querySelectorAll("iframe")).filter((f) => {
+      const src = f.getAttribute("src") || f.getAttribute("data-src") || "";
+      return src && !src.startsWith("about:") && !src.startsWith("javascript:") && !AD_RE.test(src);
+    });
+  }
+
+  function currentPlayer() {
+    let best = null, bestArea = 0;
+    for (const f of playerIframes(document)) {
+      const r = f.getBoundingClientRect();
+      const area = r.width * r.height;
+      if (area > bestArea) { best = f; bestArea = area; }
+    }
+    return bestArea > 40000 ? best : null; // mind. ca. 250×160
+  }
+
+  function sameSeason(a, b) {
+    const s = (u) => (u.match(/staffel-(\d+)|-s(\d+)e\d+/i) || []).slice(1).find(Boolean);
+    return s(a) !== undefined && s(a) === s(b);
+  }
+
+  const ALLOW = ["autoplay", "fullscreen", "encrypted-media", "picture-in-picture"];
+
+  async function switchInPlace(url, profile) {
+    if (!profile || !profile.inPlace || !sameSeason(location.href, url)) return false;
+    const cur = currentPlayer();
+    if (!cur) return false;
+    const curIndex = playerIframes(document).indexOf(cur);
+
+    const res = await fetch(url, { credentials: "include" });
+    if (!res.ok) return false;
+    const doc = new DOMParser().parseFromString(await res.text(), "text/html");
+    const candidates = playerIframes(doc);
+    const preferred = (profile.playerSelectors || []).map((sel) => doc.querySelector(sel)).find(Boolean);
+    const next = preferred || candidates[curIndex] || candidates[0];
+    if (!next) return false;
+    const src = new URL(next.getAttribute("src") || next.getAttribute("data-src"), url).href;
+    if (src === cur.src) return false;
+
+    // Autoplay-Erlaubnis an den neuen Player weitergeben
+    const allow = new Set((cur.getAttribute("allow") || "").split(";").map((x) => x.trim()).filter(Boolean));
+    ALLOW.forEach((a) => allow.add(a));
+    cur.setAttribute("allow", Array.from(allow).join("; "));
+    cur.setAttribute("allowfullscreen", "");
+    cur.src = src;
+
+    history.pushState({ lakuenWatcher: true }, "", url);
+    document.title = doc.title;
+    for (const sel of profile.textSelectors || ["h1", "h2"]) {
+      const a = document.querySelector(sel);
+      const b = doc.querySelector(sel);
+      if (a && b) a.innerHTML = b.innerHTML;
+    }
+    // Markierung in der Folgenliste nachziehen
+    document.querySelectorAll("a[href]").forEach((a) => {
+      const active = a.href === url;
+      const was = a.href === lastUrl;
+      if (active || was) {
+        const target = a.closest("li") || a;
+        const nextTwin = Array.from(doc.querySelectorAll(`a[href="${a.getAttribute("href")}"]`))[0];
+        const twinTarget = nextTwin && (nextTwin.closest("li") || nextTwin);
+        if (twinTarget) { target.className = twinTarget.className; a.className = nextTwin.className; }
+      }
+    });
+    lastUrl = url;
+    send({ type: "pageSwitched", url });
+    return true;
+  }
+
+  let lastUrl = location.href;
+  window.addEventListener("popstate", (e) => {
+    // Zurück-Taste nach einem Wechsel ohne Neuladen → Seite richtig laden
+    if (e.state && e.state.lakuenWatcher || lastUrl !== location.href) location.reload();
+  });
+
+  async function open(next) {
+    if (next.url) {
+      let done = false;
+      try { done = await switchInPlace(next.url, next.profileObj); } catch (_) { done = false; }
+      if (!done) location.href = next.url;
+    } else if (next.click) {
+      next.click.click();
+    }
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

@@ -112,6 +112,11 @@ async function handleMessage(msg, sender) {
       await rememberMedia(tabId, { url: msg.url, kind: "video", headers: { Referer: msg.referer || "" } });
       return { ok: true };
 
+    case "pageSwitched":
+      // Folge ohne Neuladen gewechselt → alte Video-Adressen vergessen
+      await chrome.storage.session.remove(`media_${tabId}`);
+      return { ok: true };
+
     case "castTick":
       // Content-Script im gecasteten Tab hält uns wach und lässt uns LakuenCast abfragen
       await pollCast();

@@ -8,6 +8,7 @@ Browser-Erweiterung für **Brave** (und andere Chromium-Browser wie Chrome und E
 
 - **Erkennt das Ende einer Folge**, auch wenn der Player in einem eingebetteten Fremd-Player (iframe) läuft
 - **Öffnet die nächste Folge**, am Staffelende die erste Folge der nächsten Staffel
+- **Startet die nächste Folge direkt mit Ton**: Innerhalb einer Staffel wird nur der Player getauscht, die Seite lädt nicht neu. Blockt der Browser trotzdem, startet die Folge stumm mit einem Knopf „🔊 Ton an“.
 - **Countdown mit „Abbrechen“** vor dem Wechsel (Standard 5 s)
 - **Stopp nach X Folgen**, z. B. zum Einschlafen
 - **Abspann überspringen**: X Sekunden vor Ende schon wechseln

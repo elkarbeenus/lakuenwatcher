@@ -68,6 +68,10 @@
     },
     // Wenn der Player erst per Klick geladen wird
     playSelectors: [".inSiteWebStream .playButton", ".inSiteWebStream [class*='play' i]", ".hosterSiteVideo .watchEpisode"],
+    // Wechsel ohne Neuladen (Klick bleibt gültig → Start mit Ton erlaubt)
+    inPlace: true,
+    playerSelectors: [".inSiteWebStream iframe", ".hosterSiteVideo iframe"],
+    textSelectors: ["h1", "h2", ".breadCrumbMenu", ".hosterSiteTitle", ".hosterSiteDirectNav"],
   };
 
   // ---------------- Filmpalast ----------------
@@ -89,6 +93,9 @@
       return r.later.length ? r.later[0].href : null;
     },
     playSelectors: [".play-button", "#play", "[class*='play' i]"],
+    inPlace: true,
+    playerSelectors: ["#stream iframe", ".stream iframe"],
+    textSelectors: ["h1", "h2"],
   };
 
   // ---------------- Allgemein: Nummer in der URL hochzählen ----------------

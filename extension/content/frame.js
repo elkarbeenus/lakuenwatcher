@@ -130,31 +130,66 @@
     return best;
   }
 
+  // Klick irgendwo im Player = echte Nutzer-Aktion → Ton darf wieder an
+  let unmuteTarget = null;
+  function offerUnmute(video) {
+    if (castMode || unmuteTarget) return;
+    unmuteTarget = video;
+    const host = document.createElement("div");
+    host.style.cssText = "position:fixed;left:16px;top:16px;z-index:2147483647;";
+    const root = host.attachShadow({ mode: "closed" });
+    root.innerHTML = `<style>
+      button{font:600 15px system-ui,sans-serif;color:#fff;background:#7c5cff;border:0;border-radius:10px;
+             padding:10px 16px;cursor:pointer;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+      button:hover{background:#9b83ff}</style>
+      <button>🔊 Ton an</button>`;
+    const unmute = () => {
+      if (unmuteTarget) { unmuteTarget.muted = false; if (unmuteTarget.paused) unmuteTarget.play().catch(() => {}); }
+      unmuteTarget = null;
+      host.remove();
+      document.removeEventListener("pointerdown", unmute, true);
+      document.removeEventListener("keydown", unmute, true);
+    };
+    root.querySelector("button").addEventListener("click", (e) => { e.stopPropagation(); unmute(); });
+    document.addEventListener("pointerdown", unmute, true);
+    document.addEventListener("keydown", unmute, true);
+    (document.body || document.documentElement).appendChild(host);
+  }
+
+  function clickPlayButton() {
+    for (const sel of PLAY_SELECTORS) {
+      const el = document.querySelector(sel);
+      if (el && el.offsetParent !== null) { el.click(); return true; }
+    }
+    return false;
+  }
+
   function tryAutoplay() {
     if (!settings.autoplay && !castMode) return;
     let tries = 0;
-    const timer = setInterval(() => {
+    let mutedFallback = false;
+    const timer = setInterval(async () => {
       tries++;
       const v = mainVideo();
       if ((v && !v.paused) || !autoplayRequested || tries > 30) {
         clearInterval(timer);
         return;
       }
-      if (v) {
-        if (castMode) v.muted = true; // stumm darf immer automatisch starten
-        v.play().catch(() => {
-          // Brave blockiert Autoplay mit Ton → Play-Knopf des Players versuchen
-          for (const sel of PLAY_SELECTORS) {
-            const el = document.querySelector(sel);
-            if (el && el.offsetParent !== null) { el.click(); break; }
-          }
-        });
-      } else {
-        for (const sel of PLAY_SELECTORS) {
-          const el = document.querySelector(sel);
-          if (el && el.offsetParent !== null) { el.click(); break; }
+      if (!v) { clickPlayButton(); return; }
+      if (castMode) v.muted = true; // stumm darf immer automatisch starten
+      try {
+        await v.play();
+      } catch (e) {
+        if (e && e.name === "NotAllowedError" && !v.muted) {
+          // Brave blockt den Start mit Ton → stumm starten und "Ton an" anbieten
+          v.muted = true;
+          mutedFallback = true;
+          try { await v.play(); } catch (_) { clickPlayButton(); }
+        } else {
+          clickPlayButton();
         }
       }
+      if (!v.paused && mutedFallback) offerUnmute(v);
     }, 1000);
   }
 

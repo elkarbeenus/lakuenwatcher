@@ -1,5 +1,5 @@
-Neu in v0.2.0: An den Fernseher senden.
+Neu in v0.3.0: Die nächste Folge startet direkt.
 
-- Knopf „📺 An Fernseher senden“ im Popup, zusammen mit LakuenCast (github.com/elkarbeenus/LakuenCast)
-- Die Folge läuft auf dem Chromecast, im Browser bleibt sie stumm und pausiert
-- Auto-Next auch auf dem Fernseher: Ist die Folge zu Ende, kommt automatisch die nächste
+- Innerhalb einer Staffel wird nur der Player getauscht, die Seite lädt nicht neu. Dein Klick von vorher gilt weiter, also darf die Folge mit Ton starten.
+- Blockt der Browser trotzdem (z. B. beim Staffelwechsel), startet die Folge stumm, und ein Knopf „🔊 Ton an“ erscheint. Jeder Klick in den Player schaltet den Ton ein.
+- Die Zurück-Taste funktioniert auch nach einem Wechsel ohne Neuladen.
