@@ -492,9 +492,17 @@ async function castTab(tabId, { manual = false } = {}) {
 
   const headers = { ...media.headers };
   if (!headers.Referer && !headers.referer) headers.Referer = tab.url;
+
+  // Mitten in der Folge? Dann am Fernseher an derselben Stelle weitermachen
+  let startAt = 0;
+  try {
+    const pos = await chrome.tabs.sendMessage(tabId, { type: "getTime" });
+    if (pos && pos.time > 3 && pos.time < pos.duration - 20) startAt = Math.floor(pos.time);
+  } catch (_) { /* kein Video im Tab */ }
+
   let r;
   try {
-    r = await lcFetch("/api/cast", { url: media.url, headers, title: tab.title || "" });
+    r = await lcFetch("/api/cast", { url: media.url, headers, title: tab.title || "", startAt });
   } catch (e) {
     return { ok: false, reason: "error", error: String(e.message || e) };
   }
@@ -517,12 +525,21 @@ async function castTab(tabId, { manual = false } = {}) {
 }
 
 async function stopCast(tabId) {
+  // Stelle am Fernseher merken, damit es im Browser dort weitergeht
+  let resumeAt = 0;
+  try {
+    const lc = await lcFetch("/api/status");
+    if (lc.mode === "casting" && lc.media && lc.media.currentTime > 3) resumeAt = lc.media.currentTime;
+  } catch (_) { /* LakuenCast schon zu */ }
   try { await lcFetch("/api/stop", {}); } catch (_) { /* LakuenCast schon zu */ }
   await setTabState(tabId, { casting: false, pendingCast: 0 });
   await chrome.storage.session.remove("castTabId");
   await setCastMode(tabId, false);
   chrome.alarms.clear("castpoll");
-  return { ok: true };
+  if (resumeAt) {
+    try { await chrome.tabs.sendMessage(tabId, { type: "resumeLocal", time: resumeAt }); } catch (_) {}
+  }
+  return { ok: true, resumeAt };
 }
 
 async function castStatus(tabId) {

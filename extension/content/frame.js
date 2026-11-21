@@ -56,9 +56,24 @@
     });
   }
 
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "castMode") setCastMode(!!msg.on);
     if (msg.type === "skipIntro") skipIntro(msg.introSkip);
+    if (msg.type === "getTime") {
+      // Nur der Frame mit der Folge antwortet
+      const v = mainVideo();
+      if (v && isEpisode(v)) { sendResponse({ time: v.currentTime, duration: v.duration }); return; }
+    }
+    if (msg.type === "resumeLocal") {
+      // Vom Fernseher zurück in den Browser: an derselben Stelle weiter
+      const v = mainVideo();
+      if (!v || !isEpisode(v)) return;
+      setCastMode(false);
+      v.currentTime = Math.min(msg.time, v.duration - 5);
+      v.muted = false;
+      v.play().catch(() => { v.muted = true; v.play().then(() => offerUnmute(v)).catch(() => {}); });
+      toast(`▶ Weiter im Browser bei ${fmt(msg.time)}`);
+    }
   });
 
   // ---------- Intro überspringen, Tasten ----------
